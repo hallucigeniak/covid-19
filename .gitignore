@@ -1,0 +1,7 @@
+*.rds
+*.pdf
+*.csv
+SIRmodel.R
+*.Rproj
+.Rhistory
+.Rproj.user

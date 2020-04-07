@@ -1,0 +1,5 @@
+#--------- Regex ---------------
+
+estados_regex <- "([Bb]aja +[Cc]alifornia +[Ss]ur|[Cc][iu][ui]dad +[Dd]e +[Mm][ée]xico|[Ss]an +[Ll]uis +[Pp]otosí|[Ee]stado [Dd]e [Mm]éxico|[Bb]aja +[Cc]alifornia|[Aa]guascalientes|[Qq]uintana +[Rr]oo|[Tt]amaulipas|[Nn]uevo +[Ll]eón|[Gg]uanajuato|[Zz]acatecas|[Qq]uerétaro|[Mm]ichoacán|[Cc]hihuahua|[Vv]eracruz|[Tt]laxcala|[Gg]uerrero|[Cc]oahuila|[Cc]ampeche|[Yy]ucatán|[Tt]abasco|[Ss]inaloa|[Nn]ayarit|[Mm]orelos|[Jj]alisco|[Hh]idalgo|[Dd]urango|[Cc]hiapas|[Ss]onora|[Pp]uebla|[Oo]axaca|[Cc]olima)"
+
+estados_order <- c("Aguascalientes", "Baja California", "Baja California Sur", "Campeche", "Chiapas", "Chihuahua", "Distrito Federal", "Coahuila", "Colima", "Durango", "México", "Guanajuato", "Guerrero", "Hidalgo", "Jalisco", "Michoacán", "Morelos", "Nayarit", "Nuevo León", "Oaxaca", "Puebla", "Querétaro", "Quintana Roo", "San Luis Potosí", "Sinaloa", "Sonora", "Tabasco", "Tamaulipas", "Tlaxcala", "Veracruz", "Yucatán", "Zacatecas")

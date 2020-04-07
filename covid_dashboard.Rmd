@@ -1,0 +1,487 @@
+---
+title: "Coronavirus en México"
+author: "Eniak"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    navbar:
+      - {title: "GitHub", href: ""}
+    source_code: embed
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+#------------------ Packages ------------------
+suppressMessages(library(flexdashboard))
+suppressMessages(library(rvest))
+suppressMessages(library(readr))
+suppressMessages(library(lubridate))
+suppressMessages(library(stringr))
+suppressMessages(library(plotly))
+suppressMessages(library(dplyr))
+suppressMessages(library(rgdal))
+suppressMessages(library(leaflet))
+suppressMessages(library(RColorBrewer))
+suppressMessages(library(DT))
+
+source("scripts/scraping.R", encoding = "utf-8")
+
+#------------------ Parameters ------------------
+
+confirmed_color <- "purple"
+active_color <- "#1f77b4"
+recovered_color <- "forestgreen"
+death_color <- "red"
+
+#------------------ Data ------------------
+df_it <- getTablaItalia()
+
+df_es <- getTablaEspana()
+
+df_mx <- getTablaHistorico() %>%
+  mutate(Pais = "Mexico") %>%
+  filter(confirmed > 0) %>%
+  mutate(lag_confirmed = lag(confirmed, default = 0),
+         lag_deaths = lag(deaths, default = 0),
+         new_cases = confirmed - lag_confirmed,
+         new_deaths = deaths - lag_deaths,
+         days_since_first_case = row_number()) %>%
+  select(Pais, date, confirmed, days_since_first_case, deaths, new_cases, new_deaths)
+
+df_estados_mx <- getTablaEstados()
+
+
+```
+
+Acumulados
+=======================================================================
+
+Row {data-width=400}
+-----------------------------------------------------------------------
+
+### confirmed {.value-box}
+
+```{r}
+
+valueBox(
+  value = paste(format(sum(df_mx$new_cases), big.mark = ","), "", sep = " "),
+  caption = "Casos confirmados totales",
+  icon = "fas fa-user-md",
+  color = confirmed_color
+)
+```
+
+
+### death {.value-box}
+
+```{r}
+
+valueBox(
+  value = paste(format(sum(df_mx$new_deaths, na.rm = TRUE), big.mark = ","), " (",
+    round(100 * sum(df_mx$new_deaths, na.rm = TRUE) / sum(df_mx$new_cases), 1),
+    "%)",
+    sep = ""
+  ),
+  caption = "Muertes (%)",
+  icon = "fas fa-heart-broken",
+  color = death_color
+)
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### **Casos diarios acumulados (México)**
+    
+```{r}
+plotly::plot_ly(data = df_mx) %>%
+  plotly::add_trace(
+    x = ~date,
+    # y = ~active_cum,
+    y = ~confirmed,
+    type = "scatter",
+    mode = "lines+markers",
+    # name = "Active",
+    name = "Confirmados",
+    line = list(color = active_color),
+    marker = list(color = active_color)
+  ) %>%
+  plotly::add_trace(
+    x = ~date,
+    y = ~deaths,
+    type = "scatter",
+    mode = "lines+markers",
+    name = "Muertes",
+    line = list(color = death_color),
+    marker = list(color = death_color)
+  ) %>%
+  plotly::add_annotations(
+    x = as.Date("2020-02-28"),
+    y = 1,
+    text = paste("Primer caso"),
+    xref = "x",
+    yref = "y",
+    arrowhead = 5,
+    arrowhead = 3,
+    arrowsize = 1,
+    showarrow = TRUE,
+    ax = -10,
+    ay = -90
+  ) %>%
+  plotly::add_annotations(
+    x = as.Date("2020-03-20"),
+    y = 3,
+    text = paste("Primera muerte"),
+    xref = "x",
+    yref = "y",
+    arrowhead = 5,
+    arrowhead = 3,
+    arrowsize = 1,
+    showarrow = TRUE,
+    ax = -90,
+    ay = -90
+  ) %>%
+  plotly::add_annotations(
+    x = as.Date("2020-03-24"),
+    y = 14,
+    text = paste("Fase 2"),
+    xref = "x",
+    yref = "y",
+    arrowhead = 5,
+    arrowhead = 3,
+    arrowsize = 1,
+    showarrow = TRUE,
+    ax = -10,
+    ay = -90
+  ) %>%
+  plotly::layout(
+    title = "",
+    yaxis = list(title = "Número de casos acumulados"),
+    xaxis = list(title = "Fecha"),
+    legend = list(x = 0.1, y = 0.9),
+    hovermode = "compare"
+  )
+```
+
+### **Casos diarios acumulados (curva ajustada)**
+```{r}
+
+fit <- lm(log(confirmed) ~ date, data = df_mx)
+exp_trend <- exp(predict(fit, data.frame(date=df_mx$date), interval = "prediction"))
+df_1 <- cbind(df_mx, exp_trend)
+
+plotly::plot_ly(data = df_1,
+                x = ~date,
+                y = ~upr,
+                type = 'scatter',
+                mode = 'lines',
+                line = list(color = 'transparent'),
+                name = 'Intervalo de predicción 95%',
+                showlegend = FALSE
+                ) %>%
+  plotly::add_trace(y = ~lwr,
+                    type = 'scatter',
+                    mode = 'lines',
+                    fill = 'tonexty',
+                    fillcolor='rgba(0,100,80,0.2)',
+                    line = list(color = 'transparent'),
+                    showlegend = TRUE,
+                    name = 'Intervalo de predicción 95%') %>%
+    plotly::add_trace(y = ~fit,
+                    type = 'scatter',
+                    mode = 'lines',
+                    line = list(color = 'rgba(0,100,80)', dash = 'dot'),
+                    showlegend = TRUE,
+                    name = 'modelo') %>%
+  plotly::add_trace(x = ~date,
+                     y = ~confirmed,
+                     type = 'scatter',
+                     mode = 'lines+markers',
+                    showlegend = TRUE,
+                     line = list(color=active_color),
+                     marker = list(color = active_color),
+                     name = 'Confirmados') %>%
+  plotly::layout(title = "",
+                 yaxis = list(title = "Número de casos acumulados"),
+                 xaxis = list(title = "Fecha"),
+                 legend = list(x = 0.1, y = 0.9),
+                 hovermode = "compare"
+  )
+
+
+
+```
+
+
+
+Diarios
+=======================================================================
+
+
+row {data-width=650}
+-----------------------------------------------------------------------
+### **Evolución de los casos nuevos en México**
+```{r}
+
+#----------------------------------------
+# Plotting the data
+
+df_mx %>%
+  filter(new_cases != 0) %>%
+  select(date, new_cases) %>%
+  #accumulate_by(~date) %>%
+  plotly::plot_ly(
+    x = ~date,
+    y = ~new_cases,
+    #frame = ~frame,
+    mode = 'lines',
+    fill = 'tozeroy',
+    type = 'scatter',
+    name = "Mexico",
+    line = list(simplyfy = F)
+  ) %>%
+  plotly::layout(
+    title = "",
+    yaxis = list(title = "Número de casos nuevos diarios",autoscale =T, range = c(0, max(df_mx$new_cases))),
+    xaxis = list(title = "Fecha", autoscale =T, range = c(min(df_mx$date), max(df_mx$date))),
+    legend = list(x = 0.1, y = 0.9),
+    hovermode = "compare")
+  # ) %>%
+  # animation_opts(
+  #   frame = 100,
+  #   transition = 0,
+  #   redraw = FALSE
+  # ) %>%
+  # 
+  # animation_button(
+  #   x = 1,
+  #   xanchor = 'right',
+  #   y = 0,
+  #   yanchor = 'bottom'
+  # )
+
+```
+
+Row 
+-----------------------------------------------------------------------
+
+
+### **Casos nuevos por día en México y otros paises**
+```{r}
+df_1 <- rbind(df_mx, df_es) %>%
+  rbind(df_it) 
+
+df_it_new <- df_it %>%
+  mutate(new_cases = new_cases + 1)
+fit_it <- lm(log(new_cases) ~ days_since_first_case, data = df_it_new)
+exp_trend_it <- exp(predict(fit_it, data.frame(days_since_first_case=df_it$days_since_first_case), interval = "prediction"))  %>%
+  as_tibble() %>%
+  mutate(Pais = "Italia",
+         days_since_first_case=df_it_new$days_since_first_case)
+
+df_mx_new <- df_mx %>%
+  mutate(new_cases = new_cases + 1)
+fit_mx <- lm(log(new_cases) ~ (days_since_first_case), data = df_mx_new)
+exp_trend_mx <- exp(predict(fit_mx, data.frame(days_since_first_case=df_mx_new$days_since_first_case), interval = "prediction")) %>%
+  as_tibble() %>%
+  mutate(Pais = "Mexico",
+         days_since_first_case=df_mx_new$days_since_first_case)
+
+df_es_new <- df_es %>%
+  mutate(new_cases = new_cases + 1)
+fit_es <- lm(log(new_cases) ~ days_since_first_case, data = df_es_new)
+exp_trend_es <- exp(predict(fit_es, data.frame(days_since_first_case=df_es_new$days_since_first_case), interval = "prediction")) %>%
+  as_tibble() %>%
+  mutate(Pais = "España",
+         days_since_first_case=df_es_new$days_since_first_case)
+
+df_trends <- rbind(exp_trend_mx, exp_trend_es) %>%
+  rbind(exp_trend_it)
+
+df_1 %>%
+plotly::plot_ly(x = ~days_since_first_case,
+                y = ~new_cases,
+                group = ~Pais,
+                type = "scatter",
+                color = ~Pais,
+                mode = "lines+markers",
+                text = ~paste('Fecha: ', date)) %>%
+  plotly::layout(
+    title = "",
+    yaxis = list(title = "Número de casos nuevos diarios",autoscale =T, range = c(0, max(df_1$new_cases))),
+    xaxis = list(title = "Días desde el primer reporte", autoscale =T),
+    legend = list(x = 0.1, y = 0.9),
+    hovermode = "compare"
+  ) %>%
+  plotly::add_trace(x = ~df_trends$days_since_first_case,
+                    y = ~df_trends$fit,
+                    group = "Pais",
+                    type = "scatter",
+                    mode = "lines",
+                    line = list(dash = 'dot'),
+                    name = 'modelo')
+```
+
+
+
+
+Comparación con otros países
+=======================================================================
+Column {data-width=400}
+-------------------------------------
+
+### **Distribución de casos por tipo**
+
+```{r daily_summary}
+daily_confirmed <- df_mx %>%
+  rbind(df_it) %>%
+  rbind(df_es)
+
+plotly::plot_ly(
+  data = daily_confirmed,
+  x = ~Pais,
+  # y = ~unrecovered,
+  y = ~ confirmed,
+  # text =  ~ confirmed,
+  # textposition = 'auto',
+  type = "bar",
+  name = "Confirmed",
+  marker = list(color = active_color)
+) %>%
+  plotly::add_trace(
+    y = ~deaths,
+    # text =  ~ death,
+    # textposition = 'auto',
+    name = "Death",
+    marker = list(color = death_color)
+  ) %>%
+  plotly::layout(
+    barmode = "stack",
+    yaxis = list(title = "Total cases"),
+    xaxis = list(title = ""),
+    hovermode = "compare",
+    margin = list(
+      # l = 60,
+      # r = 40,
+      b = 10,
+      t = 10,
+      pad = 2
+    )
+  )
+```
+
+
+Mapa
+=======================================================================
+
+Row
+------------------------------------------------------
+### **Evolución de casos por estado**
+```{r}
+df_estados_mx %>%
+  filter(Estados!="Totales") %>%
+  group_by(Estados) %>%
+  plot_ly(x = ~date,
+          y = ~ Casos,
+          group = ~Estados,
+          color = ~Estados,
+          type = "scatter",
+          mode = "lines+markers")
+
+```
+
+### **Tabla de número de casos por estado**
+
+```{r}
+demograficos_mx <- readRDS("Data/demograficos_estados_mx.rds")
+
+df_estados_mx %>%
+  group_by(Estados) %>%
+
+  mutate(Casos = ifelse(is.na(Casos), 0, Casos),
+         Muertes = ifelse(is.na(Muertes), 0, Muertes),
+         Casos_Nuevos = Casos - nth(Casos, -2)) %>%
+  filter(Estados!="Totales") %>%
+  filter(date == max(date)) %>%
+  ungroup() %>%
+  arrange(Estados) %>%
+  left_join(demograficos_mx, by = c("Estados" = "Estado")) %>%
+  mutate(Prevalencia = signif((Casos / Poblacion_2015_edo) * 100, digits = 2),
+         Incidencia = signif((Casos_Nuevos / Poblacion_2015_edo) * 100, 2)) %>%
+  select(Estados, Casos, Casos_Nuevos, Prevalencia, Incidencia, Muertes, Fecha = date) %>%
+  datatable()
+```
+
+
+Row
+--------------------------------
+### **Reporte de casos por estado** (*use + and - icons to zoom in/out*)
+
+```{r}
+df_estados_cum <- df_estados_mx %>%
+  group_by(Estados) %>%
+  filter(date == max(date)) %>%
+  mutate(Casos = ifelse(is.na(Casos), 0, Casos),
+         Muertes = ifelse(is.na(Muertes), 0, Muertes)) %>%
+  filter(Estados!="Totales") %>%
+  ungroup() %>%
+  arrange(Estados) %>%
+  mutate(estados_order = estados_order) %>%
+  arrange(estados_order) %>%
+  left_join(demograficos_mx, by = c("Estados" = "Estado")) %>%
+  mutate(densidad_zm = Poblacion_zm / Superficie_zm,
+         Incidencia_edo = (Casos / Poblacion_2015_edo / Superficie_edo),
+         Incidencia_zm = (Casos / Poblacion_zm / Superficie_zm),
+         prc_pob_infect = Casos / Superficie_zm)
+
+mexico <- readOGR(dsn = "Data/shp_files/mexico", layer = "mexico", encoding = "UTF-8", verbose = F)
+mexico$casos_acumulados<-df_estados_cum$Casos
+mexico$defunciones <- df_estados_cum$Muertes
+
+pal <- colorNumeric("RdYlGn", NULL, n = 32, reverse = T)
+
+state_popup_casos <- paste0('<p style="font-size:20"><strong>Estado: </strong>', 
+                      mexico$name, 
+                      "<br><strong>Casos acumulados: </strong>", 
+                      mexico$casos_acumulados,
+                      "<br><strong>Defunciones: </strong>",
+                       mexico$defunciones,"</p>")
+
+leaflet(data = mexico) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(fillColor = ~pal(casos_acumulados), 
+              fillOpacity = 0.8, 
+              color = "#BDBDC3", 
+              weight = 1, 
+              popup = state_popup_casos)
+```
+
+
+### **Reporte de defunciones por estado** (*use + and - icons to zoom in/out*)
+```{r}
+
+state_popup_defunciones <- paste0('<p style="font-size:20"><strong>Estado: </strong>', 
+                                  mexico$name, 
+                                  "<br><strong>Defunciones: </strong>", 
+                                  mexico$defunciones, "</p>")
+
+leaflet(data = mexico) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(fillColor = ~pal(defunciones), 
+              fillOpacity = 0.8, 
+              color = "#BDBDC3", 
+              weight = 1, 
+              popup = state_popup_defunciones)
+```
+
+
+
+Referencias
+================================
+### **Referencias**
+1. Pandemia de enfermedad por coronavirus de 2020 en México: https://es.wikipedia.org/wiki/Pandemia_de_enfermedad_por_coronavirus_de_2020_en_M%C3%A9xico
+
+2. Secreataría de Salud: https://www.gob.mx/salud/documentos/informacion-internacional-y-nacional-sobre-nuevo-coronavirus-2019-ncov?idiom=es
+ 
+3. A conceptual model for the coronavirus disease 2019 (COVID-19) outbreak in Wuhan, China with individual reaction and governmental action
