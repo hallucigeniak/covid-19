@@ -5,8 +5,8 @@ output:
   flexdashboard::flex_dashboard:
     orientation: rows
     navbar:
-      - {title: "GitHub", href: ""}
-    source_code: embed
+      - {title: "&lt;Codigo&gt;", href: "https://github.com/hallucigeniak/covid-19", align: "right", icon: "fa-github"}
+    #source_code: embed
     vertical_layout: fill
 ---
 
