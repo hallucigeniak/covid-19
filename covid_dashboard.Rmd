@@ -24,7 +24,8 @@ suppressMessages(library(leaflet))
 suppressMessages(library(RColorBrewer))
 suppressMessages(library(DT))
 
-source("scripts/scraping.R", encoding = "utf-8")
+source("scraping.R", encoding = "utf-8", local = F)
+source("miinarPDF.R", encoding = "utf-8", local = F)
 
 #------------------ Parameters ------------------
 
@@ -38,7 +39,15 @@ df_it <- getTablaItalia()
 
 df_es <- getTablaEspana()
 
-df_mx <- getTablaHistorico() %>%
+sourceDataResults <- getSourceData()
+
+if (sourceDataResults$new_reports){
+  df_mx <- minarPDF(sourceDataResults$results) 
+} else {
+  df_mx <- readRDS("Data/historico_mx.rds")
+}
+
+df_mx <- df_mx %>%
   mutate(Pais = "Mexico") %>%
   filter(confirmed > 0) %>%
   mutate(lag_confirmed = lag(confirmed, default = 0),
@@ -47,6 +56,7 @@ df_mx <- getTablaHistorico() %>%
          new_deaths = deaths - lag_deaths,
          days_since_first_case = row_number()) %>%
   select(Pais, date, confirmed, days_since_first_case, deaths, new_cases, new_deaths)
+
 
 df_estados_mx <- getTablaEstados()
 
@@ -372,13 +382,16 @@ plotly::plot_ly(
 ```
 
 
-Mapa
+Mapa {data-orientation=columns}
 =======================================================================
 
-Row
+Column {data-width=600}
 ------------------------------------------------------
 ### **Evolución de casos por estado**
+
 ```{r}
+demograficos_mx <- readRDS("Data/demograficos_estados_mx.rds")
+
 df_estados_mx %>%
   filter(Estados!="Totales") %>%
   group_by(Estados) %>%
@@ -391,31 +404,7 @@ df_estados_mx %>%
 
 ```
 
-### **Tabla de número de casos por estado**
 
-```{r}
-demograficos_mx <- readRDS("Data/demograficos_estados_mx.rds")
-
-df_estados_mx %>%
-  group_by(Estados) %>%
-
-  mutate(Casos = ifelse(is.na(Casos), 0, Casos),
-         Muertes = ifelse(is.na(Muertes), 0, Muertes),
-         Casos_Nuevos = Casos - nth(Casos, -2)) %>%
-  filter(Estados!="Totales") %>%
-  filter(date == max(date)) %>%
-  ungroup() %>%
-  arrange(Estados) %>%
-  left_join(demograficos_mx, by = c("Estados" = "Estado")) %>%
-  mutate(Prevalencia = signif((Casos / Poblacion_2015_edo) * 100, digits = 2),
-         Incidencia = signif((Casos_Nuevos / Poblacion_2015_edo) * 100, 2)) %>%
-  select(Estados, Casos, Casos_Nuevos, Prevalencia, Incidencia, Muertes, Fecha = date) %>%
-  datatable()
-```
-
-
-Row
---------------------------------
 ### **Reporte de casos por estado** (*use + and - icons to zoom in/out*)
 
 ```{r}
@@ -457,24 +446,39 @@ leaflet(data = mexico) %>%
               popup = state_popup_casos)
 ```
 
+Column {data-width=400}
+------------------------------------------------------
+### **Tabla de número de casos por estado**
 
-### **Reporte de defunciones por estado** (*use + and - icons to zoom in/out*)
 ```{r}
 
-state_popup_defunciones <- paste0('<p style="font-size:20"><strong>Estado: </strong>', 
-                                  mexico$name, 
-                                  "<br><strong>Defunciones: </strong>", 
-                                  mexico$defunciones, "</p>")
 
-leaflet(data = mexico) %>%
-  addProviderTiles("CartoDB.Positron") %>%
-  addPolygons(fillColor = ~pal(defunciones), 
-              fillOpacity = 0.8, 
-              color = "#BDBDC3", 
-              weight = 1, 
-              popup = state_popup_defunciones)
+df_estados_mx %>%
+  group_by(Estados) %>%
+
+  mutate(Casos = ifelse(is.na(Casos), 0, Casos),
+         Muertes = ifelse(is.na(Muertes), 0, Muertes),
+         Casos_Nuevos = Casos - nth(Casos, -2)) %>%
+  filter(Estados!="Totales") %>%
+  filter(date == max(date)) %>%
+  ungroup() %>%
+  arrange(Estados) %>%
+  left_join(demograficos_mx, by = c("Estados" = "Estado")) %>%
+  mutate(Prevalencia = signif((Casos / Poblacion_2015_edo) * 100, digits = 2),
+         Incidencia = signif((Casos_Nuevos / Poblacion_2015_edo) * 100, 2)) %>%
+  select(Estados, Casos, Casos_Nuevos, Prevalencia, Incidencia, Muertes, Fecha = date) %>%
+  datatable(options = list(pageLength = 32,
+                           dom = 't',
+                           initComplete = JS("function(settings, json) {",
+                                             "$(this.api().table().header()).css({'background-color': '#76aada', 'color':'#fff'});",
+                                             "}")
+    ),
+            caption = htmltools::tags$caption(style= 'caption-side: bottom; text-align:center;',
+                                              'Tabla 1: ',
+                                              htmltools::em('Prevalencia: Número de casos totales entre el tamaño de la población. Incidencia: Número de casos nuevos dividido entre el tamaño de la población')
+                                              )
+            )
 ```
-
 
 
 Referencias

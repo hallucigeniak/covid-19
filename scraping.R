@@ -4,16 +4,13 @@ library(rvest)
 library(pdftools)
 library(stringr)
 library(lubridate)
-source("scripts/regex.R", encoding = "utf-8")
-source("scripts/miinarPDF.R")
-#------------------- Existen los archivos fuente en el directorio local? -------------------
-getTablaHistorico <- function(){
+source("regex.R", encoding = "utf-8")
+
+
+getSourceData <- function(){
   
   local_pdf <- list.files(path = "Data/pdf/")
   
-  if (file_test("-f", "Data/historico_mx.rds")){
-    historico_mx <- readRDS("Data/historico_mx.rds")
-  }
   #--------------------- Descargar la lista de reportes diarios --------
   pdf_list_1 <- read_html("https://www.gob.mx/salud/documentos/informacion-internacional-y-nacional-sobre-nuevo-coronavirus-2019-ncov") %>%
     html_nodes( 'a') %>% html_attr('href') %>%
@@ -40,16 +37,31 @@ getTablaHistorico <- function(){
   pdf_list <- c(pdf_list_1, pdf_list_2)
   
   if(any(!basename(pdf_list) %in% local_pdf)){
-    historico_mx <- minarPDF(pdf_list = pdf_list, local_pdf = local_pdf)
+
+    new_pdf <- setdiff(basename(pdf_list), basename(local_pdf))
+    new_pdf_list <- lapply(new_pdf, function(x){grep(x, x = pdf_list, value = T)}) %>%
+      unlist()
+    #------------ Se descargan los pdf ---------------------------------------------------
+    print("descargando archivos fuente")
+    for (i in 1:length(new_pdf_list)){
+      file_path_name <- paste0("Data/pdf/", basename(new_pdf_list[i]))
+      download.file(new_pdf_list[i], destfile = file_path_name, quiet = T, method = "wininet", mode = "wb")
+    }
+    
+    new_pdf <- paste0("Data/pdf/", new_pdf)
+    return_list <- list(new_reports = TRUE, results = new_pdf)
+    return(return_list)
+    
+  } else if (file_test("-f", "Data/historico_mx.rds")){
+    return_list <- list(new_reports = FALSE)
+    return(return_list)
   }
-  
-    return(historico_mx)
-  }
+}
 
 #---------------- Scraping tabla de casos por estado de wikipedia --------------------------
 getTablaEstados <- function(){
-  df_estados_mx <- read_html("https://es.wikipedia.org/wiki/Pandemia_de_enfermedad_por_coronavirus_de_2020_en_M%C3%A9xico") %>% 
-    html_node(xpath = '//*[@id="mw-content-text"]/div/table[3]/tbody/tr/td[1]/table') %>% html_table(fill=T, header = T) %>%
+  df_estados_mx <- read_html("https://es.wikipedia.org/wiki/Pandemia_de_enfermedad_por_coronavirus_de_2020_en_México#Estadísticas") %>% 
+    html_node(xpath = '//*[@id="mw-content-text"]/div/table[3]/tbody/tr[1]/td[1]/table') %>% html_table(fill=T, header = T) %>%
     tail(-1) %>%
     head(-2)
   
@@ -96,7 +108,7 @@ getTablaEstados <- function(){
 #------------------ Data Italia -----------------
 getTablaItalia <- function(){
   raw_html_it <- read_html("https://es.wikipedia.org/wiki/Pandemia_de_enfermedad_por_coronavirus_de_2020_en_Italia#Estad%C3%ADsticas") %>%
-    html_node(xpath = '//*[@id="mw-content-text"]/div/table[3]') %>% html_table(fill=T, header = T) %>%
+    html_node(xpath = '//*[@id="mw-content-text"]/div/table[2]') %>% html_table(fill=T, header = T) %>%
     mutate(Pais = "Italia") %>%
     select(Pais, date = Día, confirmed = `Casos confirmados`, deaths = Muertos) %>%
     as_tibble()
