@@ -3,14 +3,42 @@ title: "Coronavirus en México"
 author: "Eniak"
 output: 
   flexdashboard::flex_dashboard:
+    theme: cosmo
     orientation: rows
     navbar:
       - {title: "&lt;Codigo&gt;", href: "https://github.com/hallucigeniak/covid-19", align: "right", icon: "fa-github"}
-    #source_code: embed
-    vertical_layout: fill
+    #runtime: shiny
+    vertical_layout: scroll
 ---
 
-```{r setup, include=FALSE}
+<style>                     
+.chart-title {
+  background-color:#173f5f;
+  color:#ffffff;
+  font-size:15px;
+}
+.navbar {
+  background-color:#20639b;
+}
+.navbar-left{
+font-size:20px;
+}
+.scrollbar{
+  fill:#20639b;
+}
+
+.chart-wrapper{
+  background: #d3e6f2;
+  border: 1px solid black;
+}
+body{
+  background:black;
+}
+
+#mapa.dashboard-row{flex:0 0 1000px;}
+</style> 
+
+```{r global, include=FALSE}
 #------------------ Packages ------------------
 suppressMessages(library(flexdashboard))
 suppressMessages(library(rvest))
@@ -29,15 +57,15 @@ source("miinarPDF.R", encoding = "utf-8", local = F)
 
 #------------------ Parameters ------------------
 
-confirmed_color <- "purple"
+confirmed_color <- "#f7c202"#"#1f77b4"
 active_color <- "#1f77b4"
 recovered_color <- "forestgreen"
-death_color <- "red"
+death_color <-  "#ed553b"#"red"
 
 #------------------ Data ------------------
 df_it <- getTablaItalia()
 
-df_es <- getTablaEspana()
+df_es <-  getTablaEspana()
 
 sourceDataResults <- getSourceData()
 
@@ -57,11 +85,32 @@ df_mx <- df_mx %>%
          days_since_first_case = row_number()) %>%
   select(Pais, date, confirmed, days_since_first_case, deaths, new_cases, new_deaths)
 
-
 df_estados_mx <- getTablaEstados()
+
+#--- Tabla con datos demográficos por Edos
+demograficos_mx <- readRDS("Data/demograficos_estados_mx.rds")
+
+df_estados_mx_1 <- df_estados_mx %>%
+  group_by(Estados) %>%
+  mutate(Casos = ifelse(is.na(Casos), 0, Casos),
+         Muertes = ifelse(is.na(Muertes), 0, Muertes),
+         lag_casos = lag(Casos, default = 0),
+         Casos_Nuevos = Casos - lag_casos) %>%
+  filter(Estados!="Totales") %>%
+  left_join(demograficos_mx, by = c("Estados" = "Estado")) %>%
+  mutate(Prevalencia = signif((Casos / Poblacion_2015_edo) * 100000, digits = 2),
+         Incidencia = signif((Casos_Nuevos / Poblacion_2015_edo) * 100000, 2)) %>%
+  select(Estados, Casos, Casos_Nuevos, Prevalencia, Incidencia, Muertes, Fecha = date) %>%
+  group_by(Estados)
+
+df_municipios <- getTablaMunicipios()
+
+#--- Shape files de los Edos de Mexico
+mexico <- readOGR(dsn = "Data/shp_files/mexico", layer = "mexico", encoding = "UTF-8", verbose = F)
 
 
 ```
+
 
 Acumulados
 =======================================================================
@@ -73,10 +122,14 @@ Row {data-width=400}
 
 ```{r}
 
+casos <- df_mx %>%
+  filter(date == max(date)) %>%
+  pull(confirmed)
+
 valueBox(
-  value = paste(format(sum(df_mx$new_cases), big.mark = ","), "", sep = " "),
+  value = paste(format(casos, big.mark = ","), "", sep = " "),
   caption = "Casos confirmados totales",
-  icon = "fas fa-user-md",
+  icon = "fa-user-md",
   color = confirmed_color
 )
 ```
@@ -98,12 +151,58 @@ valueBox(
 )
 ```
 
+Row {data-width=400}
+-----------------------------------------------------------------------
+
+### prevalencia {.value-box}
+
+```{r}
+pob_mx <- 128649565
+prevalencia <- (casos / pob_mx) * 100000
+
+valueBox(
+  value = paste0(format(prevalencia, big.mark = ",", digits = 1), " Casos/100,000 hab"),
+  caption = "Tasa de incidencia nacional",
+  icon = "fa-user-md",
+  color = active_color
+)
+```
+
+
+### Estado_mayor_prevalencia {.value-box}
+
+```{r}
+
+edo_prevalencia <- df_estados_mx_1 %>%
+  group_by(Estados) %>%
+  filter(Fecha == max(Fecha)) %>%
+  ungroup() %>%
+  filter(Prevalencia == max(Prevalencia)) %>%
+  select(Estados, Prevalencia) 
+
+estado <- edo_prevalencia %>%
+  select(Estados) %>%
+  pull() %>%
+  paste(collapse = ", ")
+
+prevalencia <- edo_prevalencia %>%
+  select(Prevalencia) %>%
+  pull() %>%
+  unique()
+
+valueBox(
+  value = paste0(estado, " (",prevalencia," casos/100,000 hab)"),
+  caption = "Entidad(es) con mayor tasa de incidencia",
+  icon = "fas head-side-cough",
+  color = active_color
+)
+```
+
 
 Row
 -----------------------------------------------------------------------
 
-### **Casos diarios acumulados (México)**
-    
+### **Casos acumulados (México)**
 ```{r}
 plotly::plot_ly(data = df_mx) %>%
   plotly::add_trace(
@@ -117,6 +216,49 @@ plotly::plot_ly(data = df_mx) %>%
     line = list(color = active_color),
     marker = list(color = active_color)
   ) %>%
+  plotly::add_annotations(
+    x = as.Date("2020-02-28"),
+    y = 1,
+    text = paste("Primer caso"),
+    xref = "x",
+    yref = "y",
+    arrowhead = 5,
+    arrowhead = 3,
+    arrowsize = 1,
+    showarrow = TRUE,
+    ax = -10,
+    ay = -90
+  ) %>%
+  plotly::add_annotations(
+    x = as.Date("2020-03-24"),
+    y = 405,
+    text = paste("Fase 2"),
+    xref = "x",
+    yref = "y",
+    arrowhead = 5,
+    arrowhead = 3,
+    arrowsize = 1,
+    showarrow = TRUE,
+    ax = -10,
+    ay = -90
+  ) %>%
+  plotly::layout(
+    title = "",
+    yaxis = list(title = "Número de casos acumulados", gridcolor = "white"),
+    xaxis = list(title = "Fecha", gridcolor = "white"),
+    legend = list(x = 0.1, y = 0.9),
+    hovermode = "compare",
+    plot_bgcolor='rgb(211, 230, 242)',
+    paper_bgcolor='rgb(211, 230, 242)'
+  )
+```
+
+
+### **Muertes acumuladas** 
+```{r}
+df_mx %>%
+  filter(deaths > 0) %>%
+plotly::plot_ly() %>%
   plotly::add_trace(
     x = ~date,
     y = ~deaths,
@@ -167,14 +309,19 @@ plotly::plot_ly(data = df_mx) %>%
   ) %>%
   plotly::layout(
     title = "",
-    yaxis = list(title = "Número de casos acumulados"),
-    xaxis = list(title = "Fecha"),
+    yaxis = list(title = "Número de muertes acumuladas", gridcolor = "white"),
+    xaxis = list(title = "Fecha", gridcolor = "white"),
     legend = list(x = 0.1, y = 0.9),
-    hovermode = "compare"
+    hovermode = "compare",
+    plot_bgcolor='rgb(211, 230, 242)',
+    paper_bgcolor='rgb(211, 230, 242)'
   )
 ```
 
-### **Casos diarios acumulados (curva ajustada)**
+Row
+-------------------------------------
+
+### **Casos acumulados (ajuste exponencial)**
 ```{r}
 
 fit <- lm(log(confirmed) ~ date, data = df_mx)
@@ -212,21 +359,209 @@ plotly::plot_ly(data = df_1,
                      line = list(color=active_color),
                      marker = list(color = active_color),
                      name = 'Confirmados') %>%
+  plotly::add_annotations(x = as.Date("2020-03-24"),
+                          y = 14,
+                          text = paste("Fase 2"),
+                          xref = "x",
+                          yref = "y",
+                          arrowhead = 5,
+                          arrowhead = 3,
+                          arrowsize = 1,
+                          showarrow = TRUE,
+                          ax = -10,
+                          ay = -90) %>%
   plotly::layout(title = "",
-                 yaxis = list(title = "Número de casos acumulados"),
-                 xaxis = list(title = "Fecha"),
+                 yaxis = list(title = "Número de casos acumulados", gridcolor = "white"),
+                 xaxis = list(title = "Fecha", gridcolor = "white"),
                  legend = list(x = 0.1, y = 0.9),
-                 hovermode = "compare"
+                 hovermode = "compare",
+                 plot_bgcolor='rgb(211, 230, 242)',
+                 paper_bgcolor='rgb(211, 230, 242)'
   )
-
-
 
 ```
 
+### **Muertes acumuladas (ajuste exponencial)**
+```{r}
+deaths_df <- df_mx %>%
+  filter(deaths > 0)
 
+fit <- lm(log(deaths) ~ date, data = deaths_df)
+exp_trend <- exp(predict(fit, data.frame(date=deaths_df$date), interval = "prediction"))
+df_1 <- cbind(deaths_df, exp_trend)
+
+plotly::plot_ly(data = df_1,
+                x = ~date,
+                y = ~upr,
+                type = 'scatter',
+                mode = 'lines',
+                line = list(color = 'transparent'),
+                name = 'Intervalo de predicción 95%',
+                showlegend = FALSE
+                ) %>%
+  plotly::add_trace(y = ~lwr,
+                    type = 'scatter',
+                    mode = 'lines',
+                    fill = 'tonexty',
+                    fillcolor='rgba(0,100,80,0.2)',
+                    line = list(color = 'transparent'),
+                    showlegend = TRUE,
+                    name = 'Intervalo de predicción 95%') %>%
+    plotly::add_trace(y = ~fit,
+                    type = 'scatter',
+                    mode = 'lines',
+                    line = list(color = 'rgba(0,100,80)', dash = 'dot'),
+                    showlegend = TRUE,
+                    name = 'modelo') %>%
+  plotly::add_trace(x = ~date,
+                     y = ~deaths,
+                     type = 'scatter',
+                     mode = 'lines+markers',
+                    showlegend = TRUE,
+                     line = list(color=death_color),
+                     marker = list(color = death_color),
+                     name = 'Confirmados')%>%
+  plotly::add_annotations(x = as.Date("2020-03-24"),
+                          y = 14,
+                          text = paste("Fase 2"),
+                          xref = "x",
+                          yref = "y",
+                          arrowhead = 5,
+                          arrowhead = 3,
+                          arrowsize = 1,
+                          showarrow = TRUE,
+                          ax = -10,
+                          ay = -90) %>%
+  plotly::layout(title = "",
+                 yaxis = list(title = "Número de casos acumulados", gridcolor = "white"),
+                 xaxis = list(title = "Fecha", gridcolor = "white"),
+                 legend = list(x = 0.1, y = 0.9),
+                 hovermode = "compare",
+                 plot_bgcolor='rgb(211, 230, 242)',
+                 paper_bgcolor='rgb(211, 230, 242)'
+  )
+
+```
 
 Diarios
 =======================================================================
+Row {data-width=400}
+-----------------------------------------------------------------------
+
+### new_confirmed {.value-box}
+
+```{r}
+df_mx_new <- df_mx %>%
+  filter(new_cases != 0) %>%
+  select(date, new_cases, new_deaths)
+
+cases_today <- df_mx_new %>%
+  filter(date == max(date)) %>%
+  pull(new_cases)
+
+fecha_today <- df_mx_new %>%
+  filter(date == max(date)) %>%
+  pull(date)
+
+valueBox(
+  value = paste(format(cases_today, big.mark = ","), "", sep = " "),
+  caption = paste("Casos nuevos del", fecha_today, sep = " "),
+  icon = "fa-user-md",
+  color = confirmed_color
+)
+```
+
+### new_confirmed_growth {.value-box}
+
+```{r}
+
+casos_ayer_hoy <- df_mx_new %>%
+  tail(2) %>%
+  pull(new_cases)
+
+growth <- (casos_ayer_hoy[2] / casos_ayer_hoy[1] * 100) - 100
+growth <- signif(growth, 1)
+
+wordings <- c("Más casos respecto al día anterior",
+              "Menos casos respecto al día anterior",
+              "Mísmo número de casos que el día anterior")
+
+growth_icons <- c("fa-arrow-circle-up",
+                  "fa-arrow-circle-down",
+                  "fa-equals")
+
+if (growth > 0){
+  wordings <- wordings[1]
+  growth_icons <- growth_icons[1]
+} else if (growth < 0){
+    wordings <- wordings[2]
+  growth_icons <- growth_icons[2]
+} else{
+    wordings <- wordings[3]
+  growth_icons <- growth_icons[3]
+}
+
+valueBox(
+  value = paste(format(growth, big.mark = ","), "%", sep = ""),
+  caption = wordings,
+  icon = growth_icons,
+  color = confirmed_color
+)
+```
+
+
+### new_death {.value-box}
+
+```{r}
+deaths_today <- df_mx_new %>%
+  filter(date == max(date)) %>%
+  pull(new_deaths)
+
+valueBox(
+  value = paste(format(deaths_today, big.mark = ","), "", sep = " "),
+  caption = paste("Fallecimientos del", fecha_today, sep = " "),
+  icon = "fa-heart-broken",
+  color = death_color
+)
+```
+
+### new_deaths_growth {.value-box}
+
+```{r}
+
+deaths_ayer_hoy <- df_mx_new %>%
+  tail(2) %>%
+  pull(new_deaths)
+
+growth <- (deaths_ayer_hoy[2] / deaths_ayer_hoy[1] * 100) - 100
+growth <- signif(growth, 1)
+
+wordings <- c("Más defunciones respecto al día anterior",
+              "Menos defunciones respecto al día anterior",
+              "Mísmo número de defunciones que el día anterior")
+
+growth_icons <- c("fa-arrow-circle-up",
+                  "fa-arrow-circle-down",
+                  "fa-equals")
+
+if (growth > 0){
+  wordings <- wordings[1]
+  growth_icons <- growth_icons[1]
+} else if (growth < 0){
+    wordings <- wordings[2]
+  growth_icons <- growth_icons[2]
+} else{
+    wordings <- wordings[3]
+  growth_icons <- growth_icons[3]
+}
+
+valueBox(
+  value = paste(format(growth, big.mark = ","), "%", sep = ""),
+  caption = wordings,
+  icon = growth_icons,
+  color = death_color
+)
+```
 
 
 row {data-width=650}
@@ -237,45 +572,457 @@ row {data-width=650}
 #----------------------------------------
 # Plotting the data
 
-df_mx %>%
-  filter(new_cases != 0) %>%
-  select(date, new_cases) %>%
-  #accumulate_by(~date) %>%
+df_mx_new %>%
   plotly::plot_ly(
     x = ~date,
     y = ~new_cases,
-    #frame = ~frame,
-    mode = 'lines',
-    fill = 'tozeroy',
+    mode = 'lines+marker',
     type = 'scatter',
-    name = "Mexico",
-    line = list(simplyfy = F)
+    name = "Casos nuevos",
+    line = list(color=active_color),
+    marker = list(color = active_color)
+  ) %>%
+  plotly::add_annotations(
+    x = as.Date("2020-03-24"),
+    y = 38,
+    text = paste("Fase 2"),
+    xref = "x",
+    yref = "y",
+    arrowhead = 5,
+    arrowhead = 3,
+    arrowsize = 1,
+    showarrow = TRUE,
+    ax = -10,
+    ay = -90
   ) %>%
   plotly::layout(
     title = "",
-    yaxis = list(title = "Número de casos nuevos diarios",autoscale =T, range = c(0, max(df_mx$new_cases))),
-    xaxis = list(title = "Fecha", autoscale =T, range = c(min(df_mx$date), max(df_mx$date))),
+    yaxis = list(title = "Número de casos nuevos diarios", gridcolor = "white"),
+    xaxis = list(title = "Fecha", gridcolor = "white"),
     legend = list(x = 0.1, y = 0.9),
-    hovermode = "compare")
-  # ) %>%
-  # animation_opts(
-  #   frame = 100,
-  #   transition = 0,
-  #   redraw = FALSE
-  # ) %>%
-  # 
-  # animation_button(
-  #   x = 1,
-  #   xanchor = 'right',
-  #   y = 0,
-  #   yanchor = 'bottom'
-  # )
+    hovermode = "compare",
+    plot_bgcolor='rgb(211, 230, 242)',
+    paper_bgcolor='rgb(211, 230, 242)'
+    )
 
 ```
 
+### **Fallecimientos por día**
+
+```{r}
+df_mx_new %>%
+  filter(new_deaths > 0) %>%
+  plotly::plot_ly(
+    x = ~date,
+    y = ~new_deaths,
+    mode = 'lines+markers',
+    type = 'scatter',
+    name = "Fallecimientos",
+    line = list(color=death_color),
+    marker = list(color = death_color)
+  ) %>%
+  plotly::add_annotations(
+    x = as.Date("2020-03-24"),
+    y = 1,
+    text = paste("Fase 2"),
+    xref = "x",
+    yref = "y",
+    arrowhead = 5,
+    arrowhead = 3,
+    arrowsize = 1,
+    showarrow = TRUE,
+    ax = -10,
+    ay = -90
+  ) %>%
+  plotly::layout(
+    title = "",
+    yaxis = list(title = "Número de fallecimientos diarios", gridcolor = "white"),
+    xaxis = list(title = "Fecha", gridcolor = "white"),
+    legend = list(x = 0.1, y = 0.9),
+    hovermode = "compare",
+    plot_bgcolor='rgb(211, 230, 242)',
+    paper_bgcolor='rgb(211, 230, 242)'
+    )
+
+```
+
+
 Row 
 -----------------------------------------------------------------------
+### **Casos diarios (ajuste exponencial)**
+```{r}
 
+fit <- lm(log(new_cases) ~ date, data = df_mx_new)
+exp_trend <- exp(predict(fit, data.frame(date=df_mx_new$date), interval = "prediction"))
+df_1 <- cbind(df_mx_new, exp_trend)
+
+plotly::plot_ly(data = df_1,
+                x = ~date,
+                y = ~upr,
+                type = 'scatter',
+                mode = 'lines',
+                line = list(color = 'transparent'),
+                name = 'Intervalo de predicción 95%',
+                showlegend = FALSE
+                ) %>%
+  plotly::add_trace(y = ~lwr,
+                    type = 'scatter',
+                    mode = 'lines',
+                    fill = 'tonexty',
+                    fillcolor='rgba(0,100,80,0.2)',
+                    line = list(color = 'transparent'),
+                    showlegend = TRUE,
+                    name = 'Intervalo de predicción 95%') %>%
+    plotly::add_trace(y = ~fit,
+                    type = 'scatter',
+                    mode = 'lines',
+                    line = list(color = 'rgba(0,100,80)', dash = 'dot'),
+                    showlegend = TRUE,
+                    name = 'modelo') %>%
+  plotly::add_trace(x = ~date,
+                     y = ~new_cases,
+                     type = 'scatter',
+                     mode = 'lines+markers',
+                    showlegend = TRUE,
+                     line = list(color= active_color),
+                     marker = list(color = active_color),
+                     name = 'Casos nuevos') %>%
+  plotly::add_annotations(x = as.Date("2020-03-24"),
+                          y = 38,
+                          text = paste("Fase 2"),
+                          xref = "x",
+                          yref = "y",
+                          arrowhead = 5,
+                          arrowhead = 3,
+                          arrowsize = 1,
+                          showarrow = TRUE,
+                          ax = -10,
+                          ay = -90) %>%
+  plotly::layout(title = "",
+                 yaxis = list(title = "Número de casos nuevos", gridcolor = "white"),
+                 xaxis = list(title = "Fecha", gridcolor = "white"),
+                 legend = list(x = 0.1, y = 0.9),
+                 hovermode = "compare",
+                 plot_bgcolor='rgb(211, 230, 242)',
+                 paper_bgcolor='rgb(211, 230, 242)'
+  )
+```
+
+### **Fallecimientos diarios (ajuste exponencial)**
+```{r}
+new_deaths_df <- df_mx_new %>%
+  filter(new_deaths > 0)
+
+fit <- lm(log(new_deaths) ~ date, data = new_deaths_df)
+exp_trend <- exp(predict(fit, data.frame(date=new_deaths_df$date), interval = "prediction"))
+df_1 <- cbind(new_deaths_df, exp_trend)
+
+plotly::plot_ly(data = df_1,
+                x = ~date,
+                y = ~upr,
+                type = 'scatter',
+                mode = 'lines',
+                line = list(color = 'transparent'),
+                name = 'Intervalo de predicción 95%',
+                showlegend = FALSE
+                ) %>%
+  plotly::add_trace(y = ~lwr,
+                    type = 'scatter',
+                    mode = 'lines',
+                    fill = 'tonexty',
+                    fillcolor='rgba(0,100,80,0.2)',
+                    line = list(color = 'transparent'),
+                    showlegend = TRUE,
+                    name = 'Intervalo de predicción 95%') %>%
+    plotly::add_trace(y = ~fit,
+                    type = 'scatter',
+                    mode = 'lines',
+                    line = list(color = 'rgba(0,100,80)', dash = 'dot'),
+                    showlegend = TRUE,
+                    name = 'modelo') %>%
+  plotly::add_trace(x = ~date,
+                     y = ~new_deaths,
+                     type = 'scatter',
+                     mode = 'lines+markers',
+                    showlegend = TRUE,
+                     line = list(color= death_color),
+                     marker = list(color = death_color),
+                     name = 'Fallecimientos') %>%
+  plotly::add_annotations(x = as.Date("2020-03-24"),
+                          y = 1,
+                          text = paste("Fase 2"),
+                          xref = "x",
+                          yref = "y",
+                          arrowhead = 5,
+                          arrowhead = 3,
+                          arrowsize = 1,
+                          showarrow = TRUE,
+                          ax = -10,
+                          ay = -90) %>%
+  plotly::layout(title = "",
+                 yaxis = list(title = "Número de casos nuevos", gridcolor = "white"),
+                 xaxis = list(title = "Fecha", gridcolor = "white"),
+                 legend = list(x = 0.1, y = 0.9),
+                 hovermode = "compare",
+                 plot_bgcolor='rgb(211, 230, 242)',
+                 paper_bgcolor='rgb(211, 230, 242)'
+  )
+```
+
+
+Proyecciones {data-orientation=columns}
+======================================================================
+
+Column
+--------------------------------------------------------------
+
+```{r}
+library(forecast)
+library(prophet)
+
+#--- Casos acumulados
+df_mx_ts <- df_mx %>%
+  select(ds = date, values = confirmed) %>%
+  as.data.frame()
+
+rownames(df_mx_ts) <- df_mx_ts$ds
+
+future_orig_confirmed <- df_mx_ts %>%
+  select(ds, y = values) %>%
+  prophet(interval.width = 0.95)
+
+lambda <- BoxCox.lambda(df_mx_ts$values, method = "loglik")
+df_mx_ts$y <- BoxCox(df_mx_ts$values, lambda)
+df_mx_ts$values <- NULL
+future <- prophet(df_mx_ts, interval.width = 0.95)
+future_df <- make_future_dataframe(future, periods = 7)
+forecast <- predict(future, future_df)
+inverse_forecast_confirmed <- forecast
+rownames(inverse_forecast_confirmed) <- inverse_forecast_confirmed$ds
+inverse_forecast_confirmed$trend <- InvBoxCox(forecast$trend, lambda)
+inverse_forecast_confirmed$yhat <- InvBoxCox(forecast$yhat, lambda)
+inverse_forecast_confirmed$yhat_lower <- InvBoxCox(forecast$yhat_lower, lambda)
+inverse_forecast_confirmed$yhat_upper <- InvBoxCox(forecast$yhat_upper, lambda)
+
+#--- Nuevos casos
+df_mx_ts <- df_mx %>%
+  select(ds = date, values = new_cases) %>%
+  mutate(values = ifelse(values == 0, 1, values)) %>%
+  as.data.frame()
+
+rownames(df_mx_ts) <- df_mx_ts$ds
+
+future_orig_new <- df_mx_ts %>%
+  select(ds, y = values) %>%
+  prophet(interval.width = 0.95)
+
+lambda <- BoxCox.lambda(df_mx_ts$values, method = "loglik")
+df_mx_ts$y <- BoxCox(df_mx_ts$values, lambda)
+df_mx_ts$values <- NULL
+future <- prophet(df_mx_ts, interval.width = 0.95)
+future_df <- make_future_dataframe(future, periods = 7)
+forecast <- predict(future, future_df)
+inverse_forecast_new <- forecast
+rownames(inverse_forecast_new) <- inverse_forecast_new$ds
+inverse_forecast_new$trend <- InvBoxCox(forecast$trend, lambda)
+inverse_forecast_new$yhat <- InvBoxCox(forecast$yhat, lambda)
+inverse_forecast_new$yhat_lower <- InvBoxCox(forecast$yhat_lower, lambda)
+inverse_forecast_new$yhat_upper <- InvBoxCox(forecast$yhat_upper, lambda)
+
+today_forcast_confirmed <- inverse_forecast_confirmed %>%
+  filter(ds == Sys.Date()) %>%
+  select(yhat) %>%
+  round() %>%
+  pull()
+  
+today_forcast_new <- inverse_forecast_new %>%
+  filter(ds == Sys.Date()) %>%
+  select(yhat) %>%
+  round() %>%
+  pull()
+ 
+```
+### new_confirmed_cases {.value-box}
+
+```{r}
+ valueBox(
+   value = format(today_forcast_confirmed, big.mark = ","),
+   caption = "Casos acumulados para hoy",
+   icon = "fa-heart-broken",
+   color = active_color
+ )
+```
+
+
+### **Proyección de casos acumulados a 7 días**
+
+```{r}
+p <- plot(future_orig_confirmed, inverse_forecast_confirmed)  #plot(future_orig, inverse_forecast)
+
+plotly::ggplotly(p) %>%
+  plotly::layout(title = "",
+                 yaxis = list(title = "Número de casos confirmados", gridcolor = "white"),
+                 xaxis = list(title = "Fecha", gridcolor = "white"),
+                 legend = list(x = 0.1, y = 0.9),
+                 hovermode = "compare",
+                 plot_bgcolor='rgb(211, 230, 242)',
+                 paper_bgcolor='rgb(211, 230, 242)'
+  )
+```
+
+
+
+Column
+--------------------------------------------------
+
+### new_cases_proj {.value-box}
+```{r}
+ valueBox(
+   value = format(today_forcast_new, big.mark = ", "),
+   caption = "Nuevos casos para hoy",
+   icon = "fa-heart-broken",
+   color = active_color
+ )
+```
+
+### **Proyección de casos nuevos a 7 días**
+```{r}
+p <- plot(future_orig_new, inverse_forecast_new)  #plot(future_orig, inverse_forecast)
+
+plotly::ggplotly(p) %>%
+  plotly::layout(title = "",
+                 yaxis = list(title = "Número de casos confirmados", gridcolor = "white"),
+                 xaxis = list(title = "Fecha", gridcolor = "white"),
+                 legend = list(x = 0.1, y = 0.9),
+                 hovermode = "compare",
+                 plot_bgcolor='rgb(211, 230, 242)',
+                 paper_bgcolor='rgb(211, 230, 242)'
+  )
+```
+
+
+
+
+Estados - Evolución temporal {data-orientation=columns}
+=======================================================================
+Column {data-width=60%}
+-------------------------------------
+
+### **Evolución de casos por estado**
+
+```{r}
+
+df_estados_mx %>%
+  filter(Estados!="Totales") %>%
+  group_by(Estados) %>%
+  plot_ly(x = ~date,
+          y = ~ Casos,
+          group = ~Estados,
+          color = ~Estados,
+          type = "scatter",
+          mode = "lines+markers") %>%
+  plotly::layout(title = "",
+                 yaxis = list(title = "Número de casos acumulados", gridcolor = "white"),
+                 xaxis = list(title = "Fecha", gridcolor = "white"),
+                 hovermode = "compare",
+                 plot_bgcolor='rgb(211, 230, 242)',
+                 paper_bgcolor='rgb(211, 230, 242)'
+  )
+
+```
+
+### **Evolución de la incidencia por estado**
+
+```{r}
+
+
+df_estados_mx_1 %>%
+  plot_ly(x = ~Fecha,
+          y = ~ Incidencia,
+          group = ~Estados,
+          color = ~Estados,
+          type = "scatter",
+          mode = "lines+markers") %>%
+  plotly::layout(title = "",
+                 yaxis = list(title = "Incidiencia (100,000 hab)", gridcolor = "white"),
+                 xaxis = list(title = "Fecha", gridcolor = "white"),
+                 hovermode = "compare",
+                 plot_bgcolor='rgb(211, 230, 242)',
+                 paper_bgcolor='rgb(211, 230, 242)'
+  )
+```
+
+Column {data-width=40%}
+------------------------------------------------------
+### **Tabla de número de casos por estado**
+
+```{r}
+
+df_estados_mx_1 %>%
+  group_by(Estados) %>%
+  filter(Fecha == max(Fecha)) %>%
+  datatable(options = list(pageLength = 32,
+                           dom = 't',
+                           initComplete = JS("function(settings, json) {",
+                                             "$(this.api().table().header()).css({'background-color': '#3caea3', 'color':'#fff'});",
+                                             "}")
+    ),
+            caption = htmltools::tags$caption(style= 'caption-side: bottom; text-align:center;',
+                                              'Tabla 1: ',
+                                              htmltools::em('Prevalencia: Número de casos totales entre el tamaño de la población. Incidencia: Número de casos nuevos dividido entre el tamaño de la población')
+                                              )
+            )
+```
+
+
+
+Mapa 
+=======================================================================
+
+### **Reporte de casos por estado** (*use + and - icons to zoom in/out*) {data-height=800}
+
+```{r}
+df_estados_cum <- df_estados_mx %>%
+  group_by(Estados) %>%
+  filter(date == max(date)) %>%
+  mutate(Casos = ifelse(is.na(Casos), 0, Casos),
+         Muertes = ifelse(is.na(Muertes), 0, Muertes)) %>%
+  filter(Estados!="Totales") %>%
+  ungroup() %>%
+  arrange(Estados) %>%
+  mutate(estados_order = estados_order) %>%
+  arrange(estados_order) %>%
+  left_join(demograficos_mx, by = c("Estados" = "Estado")) %>%
+  mutate(densidad_zm = Poblacion_zm / Superficie_zm,
+         Incidencia_edo = (Casos / Poblacion_2015_edo / Superficie_edo),
+         Incidencia_zm = (Casos / Poblacion_zm / Superficie_zm),
+         prc_pob_infect = Casos / Superficie_zm)
+
+mexico$casos_acumulados<-df_estados_cum$Casos
+mexico$defunciones <- df_estados_cum$Muertes
+
+pal <- colorNumeric("RdYlGn", NULL, n = 32, reverse = T)
+
+state_popup_casos <- paste0('<p style="font-size:20"><strong>Estado: </strong>', 
+                      mexico$name, 
+                      "<br><strong>Casos acumulados: </strong>", 
+                      mexico$casos_acumulados,
+                      "<br><strong>Defunciones: </strong>",
+                       mexico$defunciones,"</p>")
+
+leaflet(data = mexico) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(fillColor = ~pal(casos_acumulados), 
+              fillOpacity = 0.8, 
+              color = "#BDBDC3", 
+              weight = 1, 
+              popup = state_popup_casos)
+```
+
+
+
+Contexto internacional
+================================
 
 ### **Casos nuevos por día en México y otros paises**
 ```{r}
@@ -330,156 +1077,17 @@ plotly::plot_ly(x = ~days_since_first_case,
                     type = "scatter",
                     mode = "lines",
                     line = list(dash = 'dot'),
-                    name = 'modelo')
-```
-
-
-
-
-Comparación con otros países
-=======================================================================
-Column {data-width=400}
--------------------------------------
-
-### **Distribución de casos por tipo**
-
-```{r daily_summary}
-daily_confirmed <- df_mx %>%
-  rbind(df_it) %>%
-  rbind(df_es)
-
-plotly::plot_ly(
-  data = daily_confirmed,
-  x = ~Pais,
-  # y = ~unrecovered,
-  y = ~ confirmed,
-  # text =  ~ confirmed,
-  # textposition = 'auto',
-  type = "bar",
-  name = "Confirmed",
-  marker = list(color = active_color)
-) %>%
-  plotly::add_trace(
-    y = ~deaths,
-    # text =  ~ death,
-    # textposition = 'auto',
-    name = "Death",
-    marker = list(color = death_color)
-  ) %>%
-  plotly::layout(
-    barmode = "stack",
-    yaxis = list(title = "Total cases"),
-    xaxis = list(title = ""),
-    hovermode = "compare",
-    margin = list(
-      # l = 60,
-      # r = 40,
-      b = 10,
-      t = 10,
-      pad = 2
-    )
+                    name = 'modelo') %>%
+  plotly::layout(title = "",
+                 yaxis = list(title = "Número de casos diarios", gridcolor = "white"),
+                 xaxis = list(title = "Fecha", gridcolor = "white"),
+                 legend = list(x = 0.1, y = 0.9),
+                 hovermode = "compare",
+                 plot_bgcolor='rgb(211, 230, 242)',
+                 paper_bgcolor='rgb(211, 230, 242)'
   )
-```
-
-
-Mapa {data-orientation=columns}
-=======================================================================
-
-Column {data-width=600}
-------------------------------------------------------
-### **Evolución de casos por estado**
-
-```{r}
-demograficos_mx <- readRDS("Data/demograficos_estados_mx.rds")
-
-df_estados_mx %>%
-  filter(Estados!="Totales") %>%
-  group_by(Estados) %>%
-  plot_ly(x = ~date,
-          y = ~ Casos,
-          group = ~Estados,
-          color = ~Estados,
-          type = "scatter",
-          mode = "lines+markers")
 
 ```
-
-
-### **Reporte de casos por estado** (*use + and - icons to zoom in/out*)
-
-```{r}
-df_estados_cum <- df_estados_mx %>%
-  group_by(Estados) %>%
-  filter(date == max(date)) %>%
-  mutate(Casos = ifelse(is.na(Casos), 0, Casos),
-         Muertes = ifelse(is.na(Muertes), 0, Muertes)) %>%
-  filter(Estados!="Totales") %>%
-  ungroup() %>%
-  arrange(Estados) %>%
-  mutate(estados_order = estados_order) %>%
-  arrange(estados_order) %>%
-  left_join(demograficos_mx, by = c("Estados" = "Estado")) %>%
-  mutate(densidad_zm = Poblacion_zm / Superficie_zm,
-         Incidencia_edo = (Casos / Poblacion_2015_edo / Superficie_edo),
-         Incidencia_zm = (Casos / Poblacion_zm / Superficie_zm),
-         prc_pob_infect = Casos / Superficie_zm)
-
-mexico <- readOGR(dsn = "Data/shp_files/mexico", layer = "mexico", encoding = "UTF-8", verbose = F)
-mexico$casos_acumulados<-df_estados_cum$Casos
-mexico$defunciones <- df_estados_cum$Muertes
-
-pal <- colorNumeric("RdYlGn", NULL, n = 32, reverse = T)
-
-state_popup_casos <- paste0('<p style="font-size:20"><strong>Estado: </strong>', 
-                      mexico$name, 
-                      "<br><strong>Casos acumulados: </strong>", 
-                      mexico$casos_acumulados,
-                      "<br><strong>Defunciones: </strong>",
-                       mexico$defunciones,"</p>")
-
-leaflet(data = mexico) %>%
-  addProviderTiles("CartoDB.Positron") %>%
-  addPolygons(fillColor = ~pal(casos_acumulados), 
-              fillOpacity = 0.8, 
-              color = "#BDBDC3", 
-              weight = 1, 
-              popup = state_popup_casos)
-```
-
-Column {data-width=400}
-------------------------------------------------------
-### **Tabla de número de casos por estado**
-
-```{r}
-
-
-df_estados_mx %>%
-  group_by(Estados) %>%
-
-  mutate(Casos = ifelse(is.na(Casos), 0, Casos),
-         Muertes = ifelse(is.na(Muertes), 0, Muertes),
-         Casos_Nuevos = Casos - nth(Casos, -2)) %>%
-  filter(Estados!="Totales") %>%
-  filter(date == max(date)) %>%
-  ungroup() %>%
-  arrange(Estados) %>%
-  left_join(demograficos_mx, by = c("Estados" = "Estado")) %>%
-  mutate(Prevalencia = signif((Casos / Poblacion_2015_edo) * 100, digits = 2),
-         Incidencia = signif((Casos_Nuevos / Poblacion_2015_edo) * 100, 2)) %>%
-  select(Estados, Casos, Casos_Nuevos, Prevalencia, Incidencia, Muertes, Fecha = date) %>%
-  datatable(options = list(pageLength = 32,
-                           dom = 't',
-                           initComplete = JS("function(settings, json) {",
-                                             "$(this.api().table().header()).css({'background-color': '#76aada', 'color':'#fff'});",
-                                             "}")
-    ),
-            caption = htmltools::tags$caption(style= 'caption-side: bottom; text-align:center;',
-                                              'Tabla 1: ',
-                                              htmltools::em('Prevalencia: Número de casos totales entre el tamaño de la población. Incidencia: Número de casos nuevos dividido entre el tamaño de la población')
-                                              )
-            )
-```
-
 
 Referencias
 ================================

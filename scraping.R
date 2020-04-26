@@ -90,11 +90,13 @@ getTablaEstados <- function(){
     
      temp_df$Casos <- temp_df$Casos %>%
        str_replace_all("\\s+", "") %>%
+       str_replace_all("(?<=\\d),(?=\\d)", replacement = "") %>%
        str_extract_all("^\\d+|\\d+$", simplify = T) %>%
        as.numeric()
      
      temp_df$Muertes <- temp_df$Muertes %>%
        str_replace_all("\\s+", "") %>%
+       str_replace_all("(?<=\\d),(?=\\d)", replacement = "") %>%
        str_extract_all("^\\d+|\\d+$", simplify = T) %>%
        as.numeric()
      
@@ -108,7 +110,7 @@ getTablaEstados <- function(){
 #------------------ Data Italia -----------------
 getTablaItalia <- function(){
   raw_html_it <- read_html("https://es.wikipedia.org/wiki/Pandemia_de_enfermedad_por_coronavirus_de_2020_en_Italia#Estad%C3%ADsticas") %>%
-    html_node(xpath = '//*[@id="mw-content-text"]/div/table[2]') %>% html_table(fill=T, header = T) %>%
+    html_node(xpath = '//*[@id="mw-content-text"]/div/table[3]') %>% html_table(fill=T, header = T) %>%
     mutate(Pais = "Italia") %>%
     select(Pais, date = Día, confirmed = `Casos confirmados`, deaths = Muertos) %>%
     as_tibble()
@@ -152,10 +154,10 @@ getTablaEspana <- function(){
   
   raw_html_es <- read_html("https://es.wikipedia.org/wiki/Pandemia_de_enfermedad_por_coronavirus_de_2020_en_España#Estadísticas") %>%
     html_nodes('.wikitable') %>% `[[`(data_table_index) %>% html_table(fill=T, header = F) %>%
-    mutate(Pais = "España") %>%
-    select(Pais, date = X2, confirmed = X4, deaths = X11) %>%
     tail(-3) %>%
-    head(-1) %>%
+    head(-1) %>% 
+    mutate(Pais = "España") %>%
+    select(Pais, date = X2, confirmed = X4, deaths = X9) %>%
     as_tibble()
   
   raw_html_es$date <- str_replace_all(raw_html_es$date, "^", "2020-") %>%
@@ -197,3 +199,31 @@ accumulate_by <- function(dat, var) {
 
 #------------------ Data Taiwan -----------------------
 #https://en.wikipedia.org/wiki/2020_coronavirus_pandemic_in_Taiwan
+
+
+#----------------- Data Municipios Mexico ---------------
+getTablaMunicipios <- function(){
+  text <- read_html("https://flo.uri.sh/visualisation/1981110/embed") %>% html_nodes('script') %>% html_text()
+  
+  data_cols <- c("País", "Estado", "Municipio", "Casos confirmados", "Hospitalizaciones", "En CI", "Tasa de incidencia")
+  
+  data_list <- strsplit(text[5], split = "columns") %>%
+    unlist() %>%
+    tail(-2) %>%
+    str_remove_all('^.{4}|\\"\\].*$| casos confirmados, según los datos revisados por Aristegui Noticias') %>%
+    strsplit(split = '\",\"', fixed = T)
+  
+  df_municipios <- do.call(rbind.data.frame, data_list) 
+  colnames(df_municipios) <- data_cols
+  
+  df_municipios <- df_municipios %>%
+    filter(`Tasa de incidencia` != Inf) 
+  
+  df_municipios$`Casos confirmados` <- as.numeric(levels(df_municipios$`Casos confirmados`)[df_municipios$`Casos confirmados`])
+  df_municipios$Hospitalizaciones <- as.numeric(levels(df_municipios$Hospitalizaciones)[df_municipios$Hospitalizaciones])
+  df_municipios$`En CI` <- as.numeric(levels(df_municipios$`En CI`)[df_municipios$`En CI`])
+  df_municipios$`Tasa de incidencia` <- as.numeric(levels(df_municipios$`Tasa de incidencia`)[df_municipios$`Tasa de incidencia`])
+  
+  df_municipios <-return(df_municipios)
+}
+

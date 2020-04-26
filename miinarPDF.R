@@ -64,6 +64,7 @@ minarPDF <- function(new_pdf){
     if (length(text_casos) > 1){
       defuncion <<- text_casos %>%
         grep(pattern = "[Mm]apa", invert = T, value = T) %>%
+        str_replace_all("(?<=\\d),(?=\\d)", replacement = "") %>%
         str_extract("\\b(\\w+)\\b +defunciones") %>%
         str_replace_all("\\b(un|uno)\\b", replacement = "1") %>%
         str_replace_all("\\b(dos)\\b", replacement = "2") %>%
@@ -79,6 +80,7 @@ minarPDF <- function(new_pdf){
         as.numeric()
     } else if (length(text_casos) == 1){
       defuncion <<- text_casos %>%
+        str_replace_all("(?<=\\d),(?=\\d)", replacement = "") %>%
         str_extract("\\b(\\w+)\\b +defunciones") %>%
         str_replace_all("\\b(un|UN|uno|UNO)\\b", replacement = "1") %>%
         str_replace_all("\\b(dos|DOS)\\b", replacement = "2") %>%
